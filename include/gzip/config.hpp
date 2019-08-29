@@ -1,5 +1,8 @@
-#pragma once
+#ifndef GZIP_CONFIG_HPP_INCLUDED
+#define GZIP_CONFIG_HPP_INCLUDED
 
 #ifndef ZLIB_CONST
 #define ZLIB_CONST
+#endif
+
 #endif
