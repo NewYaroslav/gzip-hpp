@@ -1,6 +1,17 @@
 #ifndef GZIP_COMPRESS_HPP_INCLUDED
 #define GZIP_COMPRESS_HPP_INCLUDED
 
+/// \file compress.hpp
+/// \brief Utility for gzip compression of binary data.
+///
+/// This file defines a class and helper functions for compressing
+/// data into gzip format. It supports input formats such as
+/// `std::string` and `std::vector<uint8_t>` and provides compressed output
+/// in the same container type.
+///
+/// The implementation relies on zlib and includes memory usage checks
+/// to prevent excessive resource consumption during compression.
+
 #include <gzip/config.hpp>
 
 // zlib
@@ -13,29 +24,40 @@
 
 namespace gzip {
 
+    /// \brief A class for compressing data into gzip format.
 	class Compressor {
 		std::size_t max_;
 		int level_;
 
 	  public:
+
+        /// \brief Constructor with optional compression level and maximum size.
+        /// \param level Compression level (default: Z_DEFAULT_COMPRESSION).
+        /// \param max_bytes Maximum allowed size for uncompressed data (default: 2GB).
 		Compressor(
 			int level = Z_DEFAULT_COMPRESSION,
 			std::size_t max_bytes = 2000000000) : // by default refuse operation if uncompressed data is > 2GB
 			max_(max_bytes), level_(level) {
 		}
 
+		/// \brief Compresses data into the output container.
+        /// \tparam OutputType The type of the container for compressed data (e.g., std::string, std::vector<uint8_t>).
+        /// \param output The container to store compressed data.
+        /// \param data Pointer to the uncompressed data.
+        /// \param size Size of the uncompressed data in bytes.
+        /// \throws std::runtime_error On compression failure or size limit exceeded.
 		template <typename InputType>
 		void compress(InputType& output,
 					  const char* data,
 					  std::size_t size) const
 		{
 
-	#ifdef DEBUG
+#           ifdef DEBUG
 			// Verify if size input will fit into unsigned int, type used for zlib's avail_in
 			if (size > std::numeric_limits<unsigned int>::max()) {
 				throw std::runtime_error("size arg is too large to fit into unsigned int type");
 			}
-	#endif
+#           endif
 			if (size > max_) {
 				throw std::runtime_error("size may use more memory than intended when decompressing");
 			}
@@ -63,12 +85,12 @@ namespace gzip {
 			// with a default value of 8 for mem_level and our window_bits of 15
 			// this is 128Kb
 
-	#pragma GCC diagnostic push
-	#pragma GCC diagnostic ignored "-Wold-style-cast"
+#           pragma GCC diagnostic push
+#           pragma GCC diagnostic ignored "-Wold-style-cast"
 			if (deflateInit2(&deflate_s, level_, Z_DEFLATED, window_bits, mem_level, Z_DEFAULT_STRATEGY) != Z_OK) {
 				throw std::runtime_error("deflate init failed");
 			}
-	#pragma GCC diagnostic pop
+#           pragma GCC diagnostic pop
 
 			deflate_s.next_in = reinterpret_cast<z_const Bytef*>(data);
 			deflate_s.avail_in = static_cast<unsigned int>(size);
@@ -96,13 +118,44 @@ namespace gzip {
 		}
 	};
 
+	/// \brief Compresses data into gzip format and returns a std::string.
+    /// \param data Pointer to the uncompressed data.
+    /// \param size Size of the uncompressed data.
+    /// \param level Compression level (default: Z_DEFAULT_COMPRESSION).
+    /// \return A std::string containing compressed data.
 	inline std::string compress(
-		const char* data,
-		std::size_t size,
-		int level = Z_DEFAULT_COMPRESSION) {
+            const char* data,
+            std::size_t size,
+            int level = Z_DEFAULT_COMPRESSION) {
 		Compressor comp(level);
 		std::string output;
 		comp.compress(output, data, size);
+		return output;
+	}
+
+	/// \brief Compresses a std::string into gzip format.
+    /// \param data The uncompressed data as a std::string.
+    /// \param level Compression level (default: Z_DEFAULT_COMPRESSION).
+    /// \return A std::string containing compressed data.
+	inline std::string compress(
+            const std::string& data,
+            int level = Z_DEFAULT_COMPRESSION) {
+		Compressor comp(level);
+		std::string output;
+		comp.compress(output, data.c_str(), data.size());
+		return output;
+	}
+
+	/// \brief Compresses a std::vector<uint8_t> into gzip format.
+    /// \param binary_data The uncompressed data as a std::vector<uint8_t>.
+    /// \param level Compression level (default: Z_DEFAULT_COMPRESSION).
+    /// \return A std::vector<uint8_t> containing compressed data.
+	inline std::vector<uint8_t> compress(
+            const std::vector<uint8_t>& binary_data,
+            int level = Z_DEFAULT_COMPRESSION) {
+		Compressor comp(level);
+		std::vector<uint8_t> output;
+		comp.compress(output, reinterpret_cast<const char*>(binary_data.data()), binary_data.size());
 		return output;
 	}
 
