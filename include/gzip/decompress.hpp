@@ -28,7 +28,11 @@
 #include <gzip/config.hpp>
 
 // zlib
+#ifdef GZIP_USING_ZLIB_NG
+#include <zlib-ng.h>
+#else
 #include <zlib.h>
+#endif
 
 // std
 #include <limits>
@@ -60,8 +64,57 @@ namespace gzip {
         template <typename OutputType>
         void decompress(OutputType& output,
                         const char* data,
-                        std::size_t size) const
-        {
+                        std::size_t size) const {
+#           ifdef GZIP_USING_ZLIB_NG
+            zng_stream inflate_s{};
+            inflate_s.zalloc = Z_NULL;
+            inflate_s.zfree = Z_NULL;
+            inflate_s.opaque = Z_NULL;
+
+            constexpr int window_bits = 15 + 32; // auto-detect zlib/gzip header
+
+            if (zng_inflateInit2(&inflate_s, window_bits) != Z_OK) {
+                throw std::runtime_error("zng_inflateInit2 failed");
+            }
+
+            inflate_s.next_in = reinterpret_cast<z_const Bytef*>(data);
+
+            if (size > max_ || (size * 2) > max_) {
+                zng_inflateEnd(&inflate_s);
+                throw std::runtime_error("compressed data too large or decompression memory limit exceeded");
+            }
+
+            inflate_s.avail_in = static_cast<unsigned int>(size);
+            std::size_t size_uncompressed = 0;
+
+            try {
+                do {
+                    std::size_t resize_to = size_uncompressed + 2 * size;
+                    if (resize_to > max_) {
+                        throw std::runtime_error("decompressed data would exceed max allowed size");
+                    }
+
+                    output.resize(resize_to);
+                    inflate_s.avail_out = static_cast<unsigned int>(2 * size);
+                    inflate_s.next_out = reinterpret_cast<Bytef*>(&output[0] + size_uncompressed);
+
+                    int ret = zng_inflate(&inflate_s, Z_FINISH);
+                    if (ret != Z_STREAM_END && ret != Z_OK && ret != Z_BUF_ERROR) {
+                        const char* err = inflate_s.msg ? inflate_s.msg : "zng_inflate failed";
+                        throw std::runtime_error(err);
+                    }
+
+                    size_uncompressed += (2 * size - inflate_s.avail_out);
+                } while (inflate_s.avail_out == 0);
+
+                output.resize(size_uncompressed);
+            } catch (...) {
+                zng_inflateEnd(&inflate_s);
+                throw;
+            }
+
+            zng_inflateEnd(&inflate_s);
+#           else
             z_stream inflate_s;
 
             inflate_s.zalloc = Z_NULL;
@@ -129,6 +182,7 @@ namespace gzip {
                 throw; // Rethrow the original exception.
             }
             inflateEnd(&inflate_s);
+#           endif
         }
     };
 
@@ -138,8 +192,8 @@ namespace gzip {
     /// \param max_bytes Maximum allowed decompressed size in bytes (default: 2GB).
     /// \return A std::string containing decompressed data.
     inline std::string decompress(
-            const char* data, 
-            std::size_t size, 
+            const char* data,
+            std::size_t size,
             std::size_t max_bytes = 2000000000) {
         Decompressor decomp(max_bytes);
         std::string output;
@@ -152,7 +206,7 @@ namespace gzip {
     /// \param max_bytes Maximum allowed decompressed size in bytes (default: 2GB).
     /// \return A std::string containing decompressed data.
     inline std::string decompress(
-            const std::string& data, 
+            const std::string& data,
             std::size_t max_bytes = 2000000000) {
         Decompressor decomp(max_bytes);
         std::string output;
@@ -165,7 +219,7 @@ namespace gzip {
     /// \param max_bytes Maximum allowed decompressed size in bytes (default: 2GB).
     /// \return A std::vector<uint8_t> containing decompressed data.
     inline std::vector<uint8_t> decompress(
-            const std::vector<uint8_t>& binary_data, 
+            const std::vector<uint8_t>& binary_data,
             std::size_t max_bytes = 2000000000) {
         Decompressor decomp(max_bytes);
         std::vector<uint8_t> output;
